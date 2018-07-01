@@ -1,0 +1,134 @@
+package scrap
+
+import (
+	"io"
+	"log"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/PuerkitoBio/goquery"
+	"github.com/edot92/telkomscraplokerindo/db"
+	"github.com/gocolly/colly"
+)
+
+func isValidUrl(toTest string) bool {
+	_, err := url.ParseRequestURI(toTest)
+	if err != nil {
+		return false
+	} else {
+		return true
+	}
+}
+func ScrapLockerID() {
+	noPageStr := "10"
+	urlTarget := ""
+restart:
+	c1 := make(chan string)
+	c2 := make(chan string)
+	c3 := make(chan string)
+	time.Sleep(1 * time.Second)
+	go func() {
+		// Instantiate default collector
+		c := colly.NewCollector(
+			colly.AllowedDomains("www.loker.id", "loker.id"),
+		)
+		urlTarget = "https://www.loker.id/cari-lowongan-kerja/page/" + noPageStr + "?q&lokasi=jawa-barat&category=0&pendidikan=0"
+		var dataLocker db.StructDataLocker
+		dataLocker.URL = urlTarget
+		// ambil class
+		c.OnHTML(".col-action", func(e *colly.HTMLElement) {
+			// link := e.Attr("href") // ambil isi href
+			// log.Println(link)
+			link := e.ChildAttr("a", "href")
+			arrayTemp := strings.Split(link, ".html")
+			if len(arrayTemp) > 0 {
+				link = arrayTemp[0] + ".html"
+				if isValidUrl(link) {
+					// request http get
+					response, err := http.Get(link)
+					if err != nil {
+						log.Println("err http.Get")
+						c2 <- err.Error()
+						return
+					}
+					defer response.Body.Close()
+					doc, err := goquery.NewDocumentFromReader(io.Reader(response.Body))
+					if err != nil {
+						log.Println("err  goquery.NewDocumentFromReader")
+						c2 <- err.Error()
+						return
+					}
+					el := doc.Find(".entry-content")
+					e2 := el.ChildrenFiltered("div")
+					// log.Println(e2.Text())
+					textSave := e2.Text()
+					textSave = strings.Replace(textSave, "Simpan", "", -1)
+					textSave = strings.Replace(textSave, "Lamar Pekerjaan", "", -1)
+					textSave = strings.Replace(textSave, `	`, "", -1)    //spasi
+					textSave = strings.Replace(textSave, `    `, "", -1) //tab
+					dataLocker.Data = append(dataLocker.Data, db.Data{
+						Post:  textSave,
+						Raw:   textSave,
+						Waktu: "",
+					})
+				}
+
+				// db.InsertDataLocker()
+				// log.Println("--------------")
+			}
+			// _ = link
+		})
+		c.OnScraped(func(e *colly.Response) {
+			err := db.InsertDataLocker(dataLocker)
+			if err == nil {
+				countInt, _ := strconv.Atoi(noPageStr)
+				countInt++
+				if countInt < 200 {
+					noPageStr = strconv.Itoa(countInt)
+					c1 <- "count ke page " + noPageStr
+				} else {
+					c3 <- "SUCESS 100 page"
+					log.Println("SUCESS 100 page")
+				}
+			} else {
+				if err == db.ErrUrlSUdahTersedia {
+					countInt, _ := strconv.Atoi(noPageStr)
+					countInt++
+					noPageStr = strconv.Itoa(countInt)
+				}
+				c1 <- err.Error()
+			}
+		})
+		c.OnError(func(e *colly.Response, err error) {
+			log.Println("error on error colly")
+			if err != nil {
+				c2 <- (err.Error())
+			} else {
+				c2 <- string(e.Body)
+			}
+		})
+		// Start scraping
+		c.Visit(urlTarget)
+		log.Println(urlTarget)
+	}()
+	go func() {
+		time.Sleep(10 * time.Second)
+		c2 <- `timeout request`
+	}()
+
+	select {
+	case responseOK := <-c1:
+		log.Println(urlTarget+" --- received NEXT ", responseOK)
+		goto restart
+	case responError := <-c2:
+		log.Println(urlTarget+" --- received ERROR", responError)
+		// time.Sleep(5 * time.Second)
+		goto restart
+	case responFinish := <-c3:
+		log.Println(urlTarget+" --- final received", responFinish)
+		// time.Sleep(5 * time.Second)
+	}
+}
