@@ -18,5 +18,5 @@ func main() {
 	// to change the flags on the default logger
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	db.InitDB()
-	scrap.ScrapLockerID()
+	scrap.ScrapLockerID2()
 }
