@@ -1,0 +1,8 @@
+guru smp#guru,pengajar,smp
+guru sd#guru,pengajar
+buruh#pabrik
+operator#pabrik
+dokter #dokter,gigi
+dokter bedah#dokter,bedah
+dibuthkan dokter bedah#dokter,bedah
+dokter#dokter
